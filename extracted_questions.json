@@ -1,0 +1,202 @@
+[
+  {
+    "number": "1",
+    "question": "What is the powerhouse of the cell?",
+    "options": [
+      "Ribosome",
+      "Mitochondria",
+      "Nucleus",
+      "Endoplasmic reticulum"
+    ]
+  },
+  {
+    "number": "2",
+    "question": "Homeostasis refers to:",
+    "options": [
+      "Movement of cells",
+      "Maintenance of internal balance",
+      "Digestion of food",
+      "Cell reproduction"
+    ]
+  },
+  {
+    "number": "3",
+    "question": "How many chambers does the human heart have?",
+    "options": [
+      "Two",
+      "Three",
+      "Four",
+      "Five"
+    ]
+  },
+  {
+    "number": "4",
+    "question": "Which bone is the longest in the human body?",
+    "options": [
+      "Humerus",
+      "Tibia",
+      "Femur",
+      "Radius"
+    ]
+  },
+  {
+    "number": "5",
+    "question": "The basic unit of the nervous system is:",
+    "options": [
+      "Nephron",
+      "Neuron",
+      "Alveoli",
+      "Myofibril"
+    ]
+  },
+  {
+    "number": "6",
+    "question": "Which organ is responsible for filtering blood?",
+    "options": [
+      "Liver",
+      "Kidney",
+      "Pancreas",
+      "Spleen"
+    ]
+  },
+  {
+    "number": "7",
+    "question": "The diaphragm is mainly involved in:",
+    "options": [
+      "Digestion",
+      "Breathing",
+      "Blood circulation",
+      "Urination"
+    ]
+  },
+  {
+    "number": "8",
+    "question": "What type of joint is the shoulder joint?",
+    "options": [
+      "Hinge",
+      "Ball and socket",
+      "Pivot",
+      "Saddle"
+    ]
+  },
+  {
+    "number": "9",
+    "question": "The largest part of the brain is:",
+    "options": [
+      "Cerebellum",
+      "Brain stem",
+      "Cerebrum",
+      "Hypothalamus"
+    ]
+  },
+  {
+    "number": "10",
+    "question": "Red blood cells are responsible for:",
+    "options": [
+      "Fighting infections",
+      "Carrying oxygen",
+      "Blood clotting",
+      "Producing hormones"
+    ]
+  },
+  {
+    "number": "11",
+    "question": "Which structure connects muscles to bones?",
+    "options": [
+      "Ligaments",
+      "Tendons",
+      "Cartilage",
+      "Fascia"
+    ]
+  },
+  {
+    "number": "12",
+    "question": "The smallest functional unit of the kidney is:",
+    "options": [
+      "Nephron",
+      "Neuron",
+      "Lobule",
+      "Vacuole"
+    ]
+  },
+  {
+    "number": "13",
+    "question": "Which hormone controls blood sugar levels?",
+    "options": [
+      "Insulin",
+      "Thyroxine",
+      "Estrogen",
+      "Cortisol"
+    ]
+  },
+  {
+    "number": "14",
+    "question": "The skin consists of how many main layers?",
+    "options": [
+      "One",
+      "Two",
+      "Three",
+      "Four"
+    ]
+  },
+  {
+    "number": "15",
+    "question": "Gas exchange in the lungs occurs in the:",
+    "options": [
+      "Bronchi",
+      "Trachea",
+      "Alveoli",
+      "Pleura"
+    ]
+  },
+  {
+    "number": "16",
+    "question": "Which of the following is a protein-digesting enzyme?",
+    "options": [
+      "Lipase",
+      "Amylase",
+      "Pepsin",
+      "Maltase"
+    ]
+  },
+  {
+    "number": "17",
+    "question": "The largest artery in the body is:",
+    "options": [
+      "Pulmonary artery",
+      "Aorta",
+      "Carotid artery",
+      "Renal artery"
+    ]
+  },
+  {
+    "number": "18",
+    "question": "What is the functional unit of the muscle?",
+    "options": [
+      "Sarcomere",
+      "Nephron",
+      "Axon",
+      "Alveolus"
+    ]
+  },
+  {
+    "number": "19",
+    "question": "The blood component responsible for clotting is:",
+    "options": [
+      "Plasma",
+      "Platelets",
+      "Red blood cells",
+      "White blood cells"
+    ]
+  },
+  {
+    "number": "20",
+    "question": "Which system regulates hormones?",
+    "options": [
+      "Digestive system",
+      "Endocrine system",
+      "Respiratory system",
+      "Skeletal system"
+    ]
+  }
+]

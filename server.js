@@ -1,0 +1,216 @@
+const socketServer = require('socket.io');
+const cors = require('cors');
+const express = require("express");
+const app = express();
+app.use(express.json());
+const http = require('http').createServer(app);
+const nodemailer = require('nodemailer');
+const { jwt } = require('jsonwebtoken');
+const { db, secret_key, mailings } = require("./admin.firebase.js");
+const { generateToken, verifyToken } = require("./jwt.utils.js");
+const { verifyAndCreateUser, verifyAndLogUserIn } = require("./firebase.auth.js");
+const { getUserData, getUsers } = require("./user.js");
+const { createPost, getPost, reactionControlLike, createComment } = require("./post.js");
+const { fetchAllContact, getContacts, addContact } = require("./contact.js");
+const { svn } = require("./svns/consy-svn.js");
+const { lvn } = require("./svns/lvn.js");
+const { createLecturer, signin } = require("./lecturer/auth.js");
+const multer = require('multer');
+const path = require('path');
+
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, 'uploads/'); // Folder to save files
+  },
+  filename: function (req, file, cb) {
+    cb(null, Date.now() + path.extname(file.originalname)); // Unique filename
+  }
+});
+const upload = multer({ storage: storage });
+
+const { key, user } = mailings;
+app.use(cors());
+app.use('/uploads', express.static('uploads'));
+const io = socketServer(http, {cors: {origin: '*'}});
+const authenticateSocket = (socket, next) => {
+  const token = socket.handshake.auth.token;
+  const decoded = verifyToken(token, secret_key);
+  if (!decoded) {
+    socket.disconnect();
+    return next(new Error('Unauthorized'));
+  }
+  socket.user = decoded;
+  next();
+};
+
+io.use(authenticateSocket);
+io.on('connection', (socket) => {
+  console.log('Client connected id: '+socket.id);
+  socket.on("authenticate", (r) => {
+    const token = socket.handshake.auth.token;
+    io.to(r).emit("authenticate", verifyToken(token, secret_key));
+  })
+  socket.on("fetchUserData", async (sid, uid) => {
+    io.to(sid).emit("fetchUserData", await getUserData(uid));
+  })
+  socket.on("create-post", async (postData) => {
+    const { sid } = postData;
+    try {
+      const response = await createPost(postData);
+      io.to(sid).emit("create-post", response);
+    } catch(err) {
+      io.to(sid).emit("create-post", "Error occurred");
+    }
+  })
+  socket.on("fetch-post", async (sid, uid) => {
+    io.to(sid).emit("fetch-post", await getPost(uid), sid);
+  })
+  socket.on("fetch-contacts", async (sid, contactId, seed) => {
+    io.to(sid).emit("fetch-contacts", await getContacts(contactId, seed));
+  });
+  socket.on("add-contact", async (sid, contactId, seed) => {
+    const response = await addContact(contactId, seed);
+    io.to(sid).emit("add-contact", response);
+  });
+  socket.on("create-comment", async (sid, text, postId, portalId) => {
+     const res = await createComment(text, postId, portalId);
+     io.to(sid).emit("create-comment", res);
+  });
+});
+// fetch data 
+app.post("/fetch-user", async (req, res) => {
+  const { userId } = req.body;
+  userId ? res.json(await getUserData(userId)) : res.json(await getUsers());
+})
+
+async function h() {
+    console.log(await getContacts("hO7JnIiDDiWhGdZzDTT3", "gDxc3rZSdCMYT8Wdw6K4"));
+    
+}
+h()
+app.post("/api/v2/register", async (req, res) => {
+  const request = req.body;
+  if (lvn.includes(request.lvn)) {
+    const result = await createLecturer(request);
+    if(result.code == 500) {
+      res.status(500).send(result);
+    }
+    res.json({code: result.code, message: result.message});
+  } else {
+    res.status(404).send({code: 404, message: "Invalid Lecturer ID"});
+  }
+});
+
+app.post("/api/v2/login", async (req, res) => {
+  const r = req.body;
+  
+  if(!r.email || !r.password) {
+    res.status(501).send({code: 501, message: "invalid credentials"});
+  } else {
+    const rp = await signin(r.email, r.password);
+  console.log(rp)
+    if(rp.code == 404) res.status(404).send(rp);
+    if(rp.code == 200) {
+      res.json({token: generateToken(rp.message, secret_key), name: rp.message.name});
+    }
+  }
+});
+
+app.post("/api/contact/v1/", async (req, res) => {
+  const { uid } = req.body;
+  const rs = await fetchAllContact(uid);
+  res.json(rs);
+})
+
+app.post("/api/post-react-like", async (req, res) => {
+  const { postId, portalId } = req.body;
+  const response = await reactionControlLike(postId, portalId);
+  res.json({likes: response.reactions.likes});
+})
+
+app.post("/api/send-code/v1", async (req, res) => {
+  const { email, code } = req.body;
+  const transporter = nodemailer.createTransport({
+    host: 'smtp.gmail.com',
+    port: 587,
+    secure: false, 
+    auth: {
+      user: user,
+      pass: key
+    },
+    tls: {
+      rejectUnauthorized: false
+    }
+  })
+ 
+  const mailOptions = {
+    from: 'nazoratechnologylimited@gmail.com',
+    to: email,
+    subject: "Consy - Code",
+    text: '',
+    html: `
+    <html>
+    <body>
+      <h2>Hello there,</h2>
+      <p>You recently signed up for our application. To complete your registration, please use the verification code below:</p>
+      <h1>Verification Code: ${code}</h1>
+      <p>Enter this code on the verification page to activate your account.</p>
+      <p>If you didn't sign up for our application, please disregard this email.</p>
+      <p>Best regards,</p>
+      <p>Consy Inc</p>
+    </body>
+    </html>
+    `
+  }
+  transporter.sendMail(mailOptions, (error, info) => {
+    if (error) {
+      console.log('Error:', error);
+      res.status(500).send({code: 500, message: "Invalid email address"});
+    } else {
+      console.log('Email sent:', info.response);
+      res.json({code: 200, message: "Code was sent"});
+    }
+  })
+})
+
+app.get("/", (req, res) => {
+  res.send("<h1>Welcome to consy backend!");
+})
+
+app.post("/api/upload", upload.single('file'), (req, res) => {
+  if (!req.file) {
+    return res.status(400).send({ message: 'No file uploaded' });
+  }
+  res.json({ filePath: req.file.path, type: req.file.mimetype });
+});
+
+// register a user
+app.post("/api/register", async (req, res) => {
+  const userData = req.body;
+  const { portalID } = userData;
+  const r = svn.find(f => f.id == portalID);
+  if(!portalID || !r) {
+    res.status(500).send({message: "invalid svn"});
+    return;
+  }
+  const request = await verifyAndCreateUser(userData);
+  if(request.code === 500) {
+    res.status(500).send({message: request.message});
+  } else {
+    res.json(request);
+  }
+})
+
+/// sign in a user
+app.post("/api/login", async (req, res) => {
+  const { email, password } = req.body;
+  if(!email || !password) {
+   res.status(500).send({message: "Invalid credentials"});
+  }
+  const response = await verifyAndLogUserIn(email, password);
+  res.json({token: generateToken(response, secret_key), name: response.name});
+})
+
+http.listen(5000, "0.0.0.0", () => {
+  console.log('Server listening on port 5000');
+});
