@@ -50,6 +50,23 @@ io.on('connection', (socket) => {
     const token = socket.handshake.auth.token;
     io.to(r).emit("authenticate", verifyToken(token, secret_key));
   })
+  socket.on("fetchTest", async (sid, portalId) => {
+    console.log(sid);
+    const testCol = db.collection("tests");
+    const userData = await getUserData(portalId);
+    const query = testCol.where("level", "==", "200").where("department", "==", userData.department);
+    const querySnapshot = await query.get();
+    const tests = [];
+    if (!querySnapshot.empty) {
+      querySnapshot.forEach((doc) => {
+        tests.push({ id: doc.id, ...doc.data() });
+      });
+    } else {
+      io.to(sid).emit("fetchTest", "No test found for this level");
+      return;
+    }
+    console.log(tests);
+  })
   socket.on("fetchUserData", async (sid, uid) => {
     io.to(sid).emit("fetchUserData", await getUserData(uid));
   })
@@ -83,11 +100,6 @@ app.post("/fetch-user", async (req, res) => {
   userId ? res.json(await getUserData(userId)) : res.json(await getUsers());
 })
 
-async function h() {
-    console.log(await getContacts("hO7JnIiDDiWhGdZzDTT3", "gDxc3rZSdCMYT8Wdw6K4"));
-    
-}
-h()
 app.post("/api/v2/register", async (req, res) => {
   const request = req.body;
   if (lvn.includes(request.lvn)) {
