@@ -1,132 +1,150 @@
 const { db, admin } = require("./admin.firebase.js");
 const { getUserDataC } = require("./user.js");
 
-async function getContacts(seed) {
-  if (!seed) {
-    return "Invalid CID";
-  }
-  const contactRef = db
-    .collection("contacts")       // top-level collection
-    .doc(seed)                    // specific document (seed is the doc ID)
-    .collection("userContacts");
+async function getRequest(app) {
+    app.post("/api/contact/get-requests", async (req, res) => {
+        const { uid } = req.body;
 
-  const contactRes = await contactRef.get();
+        const usersRef = db.collection("users");
 
-  if (!contactRes.empty) {
-    // Extract data from the snapshot
-    const data = await Promise.all(
-      contactRes.docs.map(async doc => {
-        const postData = doc.data();
-        const userData = await getUserDataC(postData.contactId);
-        console.log(userData);
-        return { id: doc.id, ...postData, user: userData };
-      })
-    );
-    return data;
-  } else {
-    return "Invalid CID";
-  }
+        const userSnap = await usersRef.where("uid", "==", uid).limit(1).get();
+        if (userSnap.empty) return res.send([]);
+
+        const user = userSnap.docs[0].data();
+        const requests = user.friendRequest || [];
+
+        if (!requests.length) return res.send([]);
+
+        const allUsersSnap = await usersRef.where("uid", "in", requests).get();
+
+        const users = allUsersSnap.docs.map(d => d.data());
+
+        res.send(users);
+    });
 }
+async function sendRequest(app) {
+    app.post("/api/contact/send-request", async (req, res) => {
+        try {
+            const { sid, uid } = req.body;
 
-async function removeContact(contactId, seed) {
-  try {
-    const contactRef = db
-      .collection("contacts")
-      .doc(seed)
-      .collection("userContacts");
-    
-    const query = contactRef.where("contactId", "==", contactId);
-    const snapshot = await query.get();
-    
-    if (snapshot.empty) {
-      throw new Error("Contact not found");
-    }
-    
-    // Delete all matching contacts (should be only one)
-    const deletePromises = snapshot.docs.map(doc => doc.ref.delete());
-    await Promise.all(deletePromises);
-    
-    console.log(`Contact ${contactId} removed successfully`);
-    return true;
-    
-  } catch (error) {
-    console.error("Error removing contact:", error);
-    throw error;
-  }
-}
+            if (!sid || !uid) {
+                return res
+                    .status(400)
+                    .send({ success: false, message: "Missing data" });
+            }
 
-async function addContact(contactId, seed) {
-  const contactRef = db
-    .collection("contacts")
-    .doc(seed)                     // put contacts under this seed document
-    .collection("userContacts");   // subcollection name
-  const newDocRef = contactRef.doc(); // auto-generate ID
-  await newDocRef.set({
-    contactId: contactId,
-    contactDocId: newDocRef.id
-  });
+            const usersRef = db.collection("users");
 
-  return newDocRef.id;
-}
+            // Sender
+            const senderSnap = await usersRef
+                .where("uid", "==", sid)
+                .limit(1)
+                .get();
+            if (senderSnap.empty) {
+                return res
+                    .status(404)
+                    .send({ success: false, message: "Sender not found" });
+            }
 
-async function acn(id, c) {
-  try {
-    const yt = db.collection("contacts").doc(id).collection("userContacts");
-    const qy = yt.where("contactId", "==", c);
-    const r = await qy.get();
-    return !r.empty;
-  } catch (error) {
-    console.error("Error checking contact:", error);
-    return false;
-  }
-}
+            const senderDoc = senderSnap.docs[0];
+            const senderRef = senderDoc.ref;
+            const senderData = senderDoc.data();
 
-async function dfa(id, c) {
-  try {
-    const yt = db.collection("contacts").doc(c).collection("userContacts");
-    const qy = yt.where("contactId", "==", id);
-    const r = await qy.get();
-    return !r.empty;
-  } catch (error) {
-    console.error("Error checking contact:", error);
-    return false;
-  }
-}
+            // Receiver
+            const receiverSnap = await usersRef
+                .where("uid", "==", uid)
+                .limit(1)
+                .get();
+            if (receiverSnap.empty) {
+                return res
+                    .status(404)
+                    .send({ success: false, message: "Receiver not found" });
+            }
 
-async function fetchAllContact(uid) {
-  try {
-    const cref = db.collection("users");
-    const snapshot = await cref.get();
-    
-    if (snapshot.empty) {
-      return [];
-    }
+            const receiverDoc = receiverSnap.docs[0];
+            const receiverRef = receiverDoc.ref;
+            const receiverData = receiverDoc.data();
 
-    // Get all user data first
-    const allUsers = snapshot.docs.map(doc => doc.data());
-    
-    // Check contacts for all users at once
-    const filteredArray = [];
-    await Promise.all(
-      allUsers.map(async (suggData) => {
-        if (suggData.uid !== uid) { // Avoid adding self
-          const isContact = await acn(uid, suggData.uid);
-          const mContact = await dfa(uid, suggData.uid);
-          console.log(mContact);
-          if (!isContact && !mContact) {
-            filteredArray.push({...suggData, med: "suggestion"});
-          } else if(mContact) {
-	    filteredArray.push({...suggData, med: "request"});
-	  }
+            const senderSent = senderData.friendRequestSent || [];
+            const receiverRequests = receiverData.friendRequest || [];
+
+            // stop duplicates
+            if (senderSent.includes(uid) || receiverRequests.includes(sid)) {
+                return res.send({
+                    success: false,
+                    message: "Request already sent"
+                });
+            }
+
+            // update both sides
+            await Promise.all([
+                senderRef.update({
+                    friendRequestSent: [...senderSent, uid]
+                }),
+                receiverRef.update({
+                    friendRequest: [...receiverRequests, sid]
+                })
+            ]);
+
+            res.send({ success: true, message: "Request sent" });
+        } catch (err) {
+            console.error(err);
+            res.status(500).send({ success: false, message: "Server error" });
         }
-      })
-    );
-    
-    return filteredArray;
-  } catch (error) {
-    console.error("Error fetching contacts:", error);
-    return [];
-  }
+    });
 }
 
-module.exports = { getContacts, fetchAllContact, addContact };
+async function getAllUsersNotFriends(app) {
+    app.post("/api/contact/users-list", async (req, res) => {
+        try {
+            const { mainUserId } = req.body;
+
+            const usersRef = db.collection("users");
+
+            // get main user
+            const userSnap = await usersRef
+                .where("uid", "==", mainUserId)
+                .limit(1)
+                .get();
+
+            if (userSnap.empty) {
+                return res.status(404).send("User not found");
+            }
+
+            const mainUser = userSnap.docs[0].data();
+
+            const myFriends = mainUser.friendsList || [];
+            const myRequests = mainUser.friendRequest || [];
+
+            // get all other users
+            const allUsersSnap = await usersRef
+                .where("uid", "!=", mainUserId)
+                .get();
+
+            const filteredUsers = allUsersSnap.docs
+                .map(doc => doc.data())
+                .filter(user => {
+                    const theirFriends = user.friendsList || [];
+                    const theirRequests = user.friendRequest || [];
+
+                    return (
+                        !myFriends.includes(user.uid) &&
+                        !myRequests.includes(user.uid) &&
+                        !theirFriends.includes(mainUserId) &&
+                        !theirRequests.includes(mainUserId)
+                    );
+                });
+
+            res.send(filteredUsers);
+        } catch (err) {
+            console.error(err);
+            res.status(500).send("Server error");
+        }
+    });
+}
+
+module.exports = {
+    sendRequest,
+    getAllUsersNotFriends,
+    getRequest
+};

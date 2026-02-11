@@ -25,6 +25,7 @@ const verifyAndCreateUser = async (userData) => {
 }
 
 const verifyAndLogUserIn = async (email, password) => {
+  console.log(email + " "+ password);
   const usersRef = db.collection('users');
   const query = usersRef.where('email', '==', email).where('password', '==', password).limit(1);
   try {
