@@ -26,6 +26,8 @@ const { sendRequest, getAllUsersNotFriends, getRequest } = require("./contact.js
 const { svn } = require("./svns/consy-svn.js");
 const { lvn } = require("./svns/lvn.js");
 const { createLecturer, signin } = require("./lecturer/auth.js");
+const { setupMessageRoutes, setupSocketEvents } = require("./messages.js");
+
 const multer = require("multer");
 const path = require("path");
 
@@ -149,6 +151,8 @@ getAllUsersNotFriends(app);
 sendRequest(app);
 getRequest(app);
 
+setupMessageRoutes(app, io);
+setupSocketEvents(io);
 // ============================================
 // REAL-TIME COMMENT LIKE (Updated)
 // ============================================
