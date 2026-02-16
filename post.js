@@ -43,6 +43,9 @@ async function createPost(postMeta, io) {
   }
 }
 
+// ============================================
+// FETCH COMMENTS (with user data)
+// ============================================
 async function fetchComments(postId) {
   const commentRef = db.collection("comments");
   const comments_query = commentRef.where("postId", "==", postId);
@@ -54,9 +57,17 @@ async function fetchComments(postId) {
       query_snapshot.docs.map(async doc => {
         const commentData = doc.data();
         const userData = await getUserData(commentData.portalID);
-        return { id: doc.id, ...commentData, user: userData };
+        return { 
+          id: doc.id, 
+          ...commentData, 
+          user: userData,
+          timestamp: commentData.timestamp || Date.now()
+        };
       })
     );
+
+    // Sort by timestamp (newest first)
+    comments.sort((a, b) => b.timestamp - a.timestamp);
 
     return comments;
   } else {
@@ -64,35 +75,43 @@ async function fetchComments(postId) {
   }
 }
 
+// ============================================
+// CREATE COMMENT (Enhanced with timestamp)
+// ============================================
 async function createComment(text, postId, portalId, io) {
   const commentRef = db.collection("comments");
   const id = commentRef.doc().id;
+  const timestamp = Date.now();
 
-  await commentRef.doc(id).set({
+  const commentData = {
     text: text,
     postId: postId,
     portalID: portalId,
     likes: [],
-    likeCount: 0
-  });
+    likeCount: 0,
+    timestamp: timestamp
+  };
+
+  await commentRef.doc(id).set(commentData);
 
   // Emit real-time update to all connected clients
   if (io) {
     const userData = await getUserData(portalId);
     io.emit("new-comment", {
       id: id,
-      text: text,
-      postId: postId,
-      portalID: portalId,
-      user: userData,
-      likes: [],
-      likeCount: 0
+      ...commentData,
+      user: userData
     });
   }
 
-  return postId;
+  // Return the created comment with user data
+  const userData = await getUserData(portalId);
+  return {
+    id: id,
+    ...commentData,
+    user: userData
+  };
 }
-
 
 async function getPost(pid) {
   const postRef = db.collection("posts");
@@ -107,7 +126,6 @@ async function getPost(pid) {
         return { id: doc.id, ...postData, user: userData };
       })
     );
-    //console.log(data);
     return data;
   } else {
     return "Error";
@@ -155,14 +173,19 @@ async function reactionControlLike(pid, portalId, io) {
   }
 }
 
-
+// ============================================
+// COMMENT LIKE/UNLIKE
+// ============================================
 async function commentLike(app, io) {
   app.post("/api/comments/like", async (req, res) => {
     const { userId, postId, commentId } = req.body;
     
     // Validate required fields
     if (!userId || !commentId) {
-      return res.status(400).json({ error: "userId and commentId are required" });
+      return res.status(400).json({ 
+        success: false,
+        error: "userId and commentId are required" 
+      });
     }
     
     try {
@@ -171,7 +194,10 @@ async function commentLike(app, io) {
       
       // Check if comment exists
       if (!commentDoc.exists) {
-        return res.status(404).json({ error: "Comment not found" });
+        return res.status(404).json({ 
+          success: false,
+          error: "Comment not found" 
+        });
       }
       
       const commentData = commentDoc.data();
@@ -214,18 +240,27 @@ async function commentLike(app, io) {
       
     } catch (error) {
       console.error("Error liking comment:", error);
-      return res.status(500).json({ error: "Internal server error" });
+      return res.status(500).json({ 
+        success: false,
+        error: "Internal server error" 
+      });
     }
   });
 }
 
-// Add endpoint to fetch comments (for refreshing)
-async function setupCommentRoutes(app) {
+// ============================================
+// SETUP COMMENT ROUTES
+// ============================================
+async function setupCommentRoutes(app, io) {
+  // Fetch comments endpoint
   app.post("/api/fetch-comments", async (req, res) => {
     const { postId } = req.body;
     
     if (!postId) {
-      return res.status(400).json({ error: "postId is required" });
+      return res.status(400).json({ 
+        success: false,
+        error: "postId is required" 
+      });
     }
     
     try {
@@ -233,7 +268,105 @@ async function setupCommentRoutes(app) {
       return res.status(200).json(comments);
     } catch (error) {
       console.error("Error fetching comments:", error);
-      return res.status(500).json({ error: "Internal server error" });
+      return res.status(500).json({ 
+        success: false,
+        error: "Internal server error" 
+      });
+    }
+  });
+
+  // Create comment endpoint
+  app.post("/api/comments/create", async (req, res) => {
+    const { text, postId, portalId } = req.body;
+    
+    if (!text || !postId || !portalId) {
+      return res.status(400).json({ 
+        success: false,
+        error: "text, postId, and portalId are required" 
+      });
+    }
+    
+    try {
+      const newComment = await createComment(text, postId, portalId, io);
+      return res.status(200).json({
+        success: true,
+        comment: newComment
+      });
+    } catch (error) {
+      console.error("Error creating comment:", error);
+      return res.status(500).json({ 
+        success: false,
+        error: "Internal server error" 
+      });
+    }
+  });
+
+  // Delete comment endpoint (optional)
+  app.post("/api/comments/delete", async (req, res) => {
+    const { commentId, userId } = req.body;
+    
+    if (!commentId || !userId) {
+      return res.status(400).json({ 
+        success: false,
+        error: "commentId and userId are required" 
+      });
+    }
+    
+    try {
+      const commentRef = db.collection("comments").doc(commentId);
+      const commentDoc = await commentRef.get();
+      
+      if (!commentDoc.exists) {
+        return res.status(404).json({ 
+          success: false,
+          error: "Comment not found" 
+        });
+      }
+      
+      const commentData = commentDoc.data();
+      
+      // Check if user owns the comment
+      const userRef = db.collection("users");
+      const user_query = userRef.where('uid', '==', userId).limit(1);
+      const userSnapshot = await user_query.get();
+      
+      if (userSnapshot.empty) {
+        return res.status(403).json({ 
+          success: false,
+          error: "Unauthorized" 
+        });
+      }
+      
+      const userData = userSnapshot.docs[0].data();
+      
+      if (commentData.portalID !== userData.portalID) {
+        return res.status(403).json({ 
+          success: false,
+          error: "You can only delete your own comments" 
+        });
+      }
+      
+      await commentRef.delete();
+      
+      // Emit real-time update
+      if (io) {
+        io.emit("comment-deleted", {
+          commentId: commentId,
+          postId: commentData.postId
+        });
+      }
+      
+      return res.status(200).json({
+        success: true,
+        message: "Comment deleted successfully"
+      });
+      
+    } catch (error) {
+      console.error("Error deleting comment:", error);
+      return res.status(500).json({ 
+        success: false,
+        error: "Internal server error" 
+      });
     }
   });
 }

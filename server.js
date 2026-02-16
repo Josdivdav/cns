@@ -13,6 +13,12 @@ const {
     verifyAndLogUserIn
 } = require("./firebase.auth.js");
 const { getUserData, getUsers } = require("./user.js");
+const { 
+  setupUserProfileRoutes,
+  updateUserProfile,
+  getUserProfile,
+  uploadProfilePicture
+} = require("./user_profile.js");
 const {
     createPost,
     getPost,
@@ -153,6 +159,8 @@ getRequest(app);
 
 setupMessageRoutes(app, io);
 setupSocketEvents(io);
+
+setupUserProfileRoutes(app);
 // ============================================
 // REAL-TIME COMMENT LIKE (Updated)
 // ============================================
