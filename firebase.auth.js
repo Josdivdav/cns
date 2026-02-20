@@ -11,7 +11,7 @@ const verifyAndCreateUser = async (userData) => {
     if (querySnapshot.empty && ssi.empty) {
       // User doesn't exist, create a new one
       const id = db.collection('users').doc().id;
-      await usersRef.doc(id).set(userData);
+      await usersRef.doc(id).set({...userData, uid: id});
       console.log("Document written with id: "+id);
       return {code: 200, message: "user was created"};
     } else {

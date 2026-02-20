@@ -3,16 +3,33 @@ const { getUserDataC } = require("./user.js");
 
 async function getRequest(app) {
     app.post("/api/contact/get-requests", async (req, res) => {
-        const { uid } = req.body;
-        const usersRef = db.collection("users");
-        const userSnap = await usersRef.where("uid", "==", uid).limit(1).get();
-        if (userSnap.empty) return res.send([]);
-        const user = userSnap.docs[0].data();
-        const requests = user.friendRequest || [];
-        if (!requests.length) return res.send([]);
-        const allUsersSnap = await usersRef.where("uid", "in", requests).get();
-        const users = allUsersSnap.docs.map(d => d.data());
-        res.send(users);
+        try {
+            const { uid } = req.body;
+            
+            // Validate uid
+            if (!uid) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Missing uid parameter"
+                });
+            }
+            
+            const usersRef = db.collection("users");
+            const userSnap = await usersRef.where("uid", "==", uid).limit(1).get();
+            if (userSnap.empty) return res.send([]);
+            const user = userSnap.docs[0].data();
+            const requests = user.friendRequest || [];
+            if (!requests.length) return res.send([]);
+            const allUsersSnap = await usersRef.where("uid", "in", requests).get();
+            const users = allUsersSnap.docs.map(d => d.data());
+            res.send(users);
+        } catch (error) {
+            console.error("Error in getRequest:", error);
+            res.status(500).json({
+                success: false,
+                message: "Server error"
+            });
+        }
     });
 }
 
@@ -349,6 +366,15 @@ async function getAllUsersNotFriends(app, io) {
     app.post("/api/contact/users-list", async (req, res) => {
         try {
             const { mainUserId } = req.body;
+            
+            // Validate mainUserId
+            if (!mainUserId) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Missing mainUserId parameter"
+                });
+            }
+            
             const usersRef = db.collection("users");
 
             // get main user

@@ -2,12 +2,12 @@ const { db, admin } = require("./admin.firebase.js");
 const { getUserData } = require("./user.js");
 
 // ============================================
-// SEND MESSAGE
+// SEND MESSAGE (with Reply Support)
 // ============================================
 async function sendMessage(app, io) {
     app.post("/api/messages/send-message", async (req, res) => {
         try {
-            const { senderId, receiverId, message, roomId, timestamp } = req.body;
+            const { senderId, receiverId, message, roomId, timestamp, replyTo } = req.body;
 
             // Validate input
             if (!senderId || !receiverId || !message || !roomId) {
@@ -21,7 +21,7 @@ async function sendMessage(app, io) {
             const messageId = messagesRef.doc().id;
 
             // Create message document
-            await messagesRef.doc(messageId).set({
+            const messageData = {
                 id: messageId,
                 senderId: senderId,
                 receiverId: receiverId,
@@ -29,8 +29,21 @@ async function sendMessage(app, io) {
                 roomId: roomId,
                 timestamp: timestamp || Date.now(),
                 status: "sent",
-                readBy: []
-            });
+                readBy: [],
+                isEdited: false
+            };
+
+            // Add reply data if this is a reply
+            if (replyTo) {
+                messageData.replyTo = {
+                    id: replyTo.id,
+                    message: replyTo.message || replyTo.text,
+                    senderId: replyTo.senderId,
+                    senderName: replyTo.senderName
+                };
+            }
+
+            await messagesRef.doc(messageId).set(messageData);
 
             res.json({
                 success: true,
@@ -40,6 +53,91 @@ async function sendMessage(app, io) {
 
         } catch (error) {
             console.error("Error sending message:", error);
+            res.status(500).json({
+                success: false,
+                message: "Server error"
+            });
+        }
+    });
+}
+
+// ============================================
+// EDIT MESSAGE
+// ============================================
+async function editMessage(app, io) {
+    app.post("/api/messages/edit-message", async (req, res) => {
+        try {
+            const { messageId, userId, newText } = req.body;
+
+            // Validate input
+            if (!messageId || !userId || !newText) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Missing required fields"
+                });
+            }
+
+            const messageRef = db.collection("messages").doc(messageId);
+            const messageDoc = await messageRef.get();
+
+            // Check if message exists
+            if (!messageDoc.exists) {
+                return res.status(404).json({
+                    success: false,
+                    message: "Message not found"
+                });
+            }
+
+            const messageData = messageDoc.data();
+
+            // Verify user is the sender
+            if (messageData.senderId !== userId) {
+                return res.status(403).json({
+                    success: false,
+                    message: "You can only edit your own messages"
+                });
+            }
+
+            // Don't allow editing deleted messages
+            if (messageData.deleted) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Cannot edit deleted message"
+                });
+            }
+
+            // Store original message in history
+            const originalMessage = messageData.message;
+            const editHistory = messageData.editHistory || [];
+            editHistory.push({
+                text: originalMessage,
+                editedAt: Date.now()
+            });
+
+            // Update message
+            await messageRef.update({
+                message: newText,
+                isEdited: true,
+                editedAt: Date.now(),
+                editHistory: editHistory
+            });
+
+            // Emit socket event for real-time update
+            if (io) {
+                io.to(messageData.roomId).emit("message-edited", {
+                    messageId: messageId,
+                    roomId: messageData.roomId,
+                    newText: newText
+                });
+            }
+
+            res.json({
+                success: true,
+                message: "Message edited successfully"
+            });
+
+        } catch (error) {
+            console.error("Error editing message:", error);
             res.status(500).json({
                 success: false,
                 message: "Server error"
@@ -82,9 +180,10 @@ async function getMessages(app) {
                 });
             }
 
-            // Sort in memory instead of in Firestore query
+            // Filter out deleted messages and sort in memory
             const messages = snapshot.docs
                 .map(doc => doc.data())
+                .filter(msg => !msg.deleted) // Exclude deleted messages
                 .sort((a, b) => a.timestamp - b.timestamp) // Sort ascending by timestamp
                 .slice(-100); // Keep only last 100 messages
 
@@ -95,6 +194,50 @@ async function getMessages(app) {
 
         } catch (error) {
             console.error("Error getting messages:", error);
+            res.status(500).json({
+                success: false,
+                message: "Server error"
+            });
+        }
+    });
+}
+
+// ============================================
+// GET MESSAGE EDIT HISTORY
+// ============================================
+async function getEditHistory(app) {
+    app.post("/api/messages/get-edit-history", async (req, res) => {
+        try {
+            const { messageId } = req.body;
+
+            if (!messageId) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Missing messageId"
+                });
+            }
+
+            const messageRef = db.collection("messages").doc(messageId);
+            const messageDoc = await messageRef.get();
+
+            if (!messageDoc.exists) {
+                return res.status(404).json({
+                    success: false,
+                    message: "Message not found"
+                });
+            }
+
+            const messageData = messageDoc.data();
+
+            res.json({
+                success: true,
+                editHistory: messageData.editHistory || [],
+                currentMessage: messageData.message,
+                isEdited: messageData.isEdited || false
+            });
+
+        } catch (error) {
+            console.error("Error getting edit history:", error);
             res.status(500).json({
                 success: false,
                 message: "Server error"
@@ -230,7 +373,8 @@ async function getLastMessage(app) {
                 lastMessage: {
                     message: lastMessage.message,
                     timestamp: lastMessage.timestamp,
-                    senderId: lastMessage.senderId
+                    senderId: lastMessage.senderId,
+                    isEdited: lastMessage.isEdited || false
                 }
             });
 
@@ -285,7 +429,7 @@ async function deleteMessage(app, io) {
                 deletedAt: Date.now()
             });
 
-            // Optionally, emit socket event for real-time update
+            // Emit socket event for real-time update
             if (io) {
                 io.to(messageData.roomId).emit("message-deleted", {
                     messageId: messageId,
@@ -341,9 +485,9 @@ function setupSocketEvents(io) {
             });
         });
 
-        // Send message
+        // Send message (with reply support)
         socket.on("send-message", (data) => {
-            const { roomId, messageId, senderId, receiverId, message, timestamp } = data;
+            const { roomId, messageId, senderId, receiverId, message, timestamp, replyTo } = data;
             
             // Broadcast to room (except sender)
             socket.to(roomId).emit("receive-message", {
@@ -352,10 +496,39 @@ function setupSocketEvents(io) {
                 senderId: senderId,
                 receiverId: receiverId,
                 message: message,
-                timestamp: timestamp
+                timestamp: timestamp,
+                replyTo: replyTo, // Include reply data
+                isEdited: false
             });
 
             console.log(`Message sent in room ${roomId}:`, message);
+        });
+
+        // Edit message
+        socket.on("edit-message", (data) => {
+            const { messageId, roomId, newText } = data;
+            
+            // Broadcast edit to room (except sender)
+            socket.to(roomId).emit("message-edited", {
+                messageId: messageId,
+                roomId: roomId,
+                newText: newText
+            });
+
+            console.log(`Message edited in room ${roomId}:`, messageId);
+        });
+
+        // Delete message
+        socket.on("delete-message", (data) => {
+            const { messageId, roomId } = data;
+            
+            // Broadcast delete to room (except sender)
+            socket.to(roomId).emit("message-deleted", {
+                messageId: messageId,
+                roomId: roomId
+            });
+
+            console.log(`Message deleted in room ${roomId}:`, messageId);
         });
 
         // Typing indicator
@@ -406,7 +579,9 @@ function setupSocketEvents(io) {
 // ============================================
 function setupMessageRoutes(app, io) {
     sendMessage(app, io);
+    editMessage(app, io);
     getMessages(app);
+    getEditHistory(app);
     markAsRead(app, io);
     getUnreadCount(app);
     getLastMessage(app);
@@ -417,7 +592,9 @@ module.exports = {
     setupMessageRoutes,
     setupSocketEvents,
     sendMessage,
+    editMessage,
     getMessages,
+    getEditHistory,
     markAsRead,
     getUnreadCount,
     getLastMessage,
