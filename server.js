@@ -20,13 +20,12 @@ const {
   uploadProfilePicture
 } = require("./user_profile.js");
 const {
-    createPost,
     getPost,
-    reactionControlLike,
+    setup,
     createComment,
     fetchComments,
-    commentLike,
-    setupCommentRoutes
+    createReply,
+    fetchReplies
 } = require("./post.js");
 const { sendRequest, getAllUsersNotFriends, getRequest } = require("./contact.js");
 const { svn } = require("./svns/consy-svn.js");
@@ -70,9 +69,31 @@ io.use(authenticateSocket);
 io.on("connection", socket => {
     console.log("Client connected id: " + socket.id);
     
-    socket.on("authenticate", r => {
+    socket.on("authenticate", async (r) => {
         const token = socket.handshake.auth.token;
-        io.to(r).emit("authenticate", verifyToken(token, secret_key));
+        const rs = verifyToken(token, secret_key);
+        if(!rs) return;
+        const uid = rs.uid;
+        if (!uid) {
+            return res.status(400).json({
+                success: false,
+                message: "Missing user ID"
+            });
+        }
+
+        const usersRef = db.collection("users");
+        const userQuery = usersRef.where("uid", "==", uid).limit(1);
+        const userSnapshot = await userQuery.get();
+
+        if (userSnapshot.empty) {
+            return res.status(404).json({
+                success: false,
+                message: "User not found"
+            });
+        }
+
+        const userData = userSnapshot.docs[0].data();
+        io.to(r).emit("authenticate", userData);
     });
     
     socket.on("fetchTest", async (sid, portalId) => {
@@ -161,15 +182,8 @@ setupMessageRoutes(app, io);
 setupSocketEvents(io);
 
 setupUserProfileRoutes(app);
-// ============================================
-// REAL-TIME COMMENT LIKE (Updated)
-// ============================================
-// Pass 'io' to commentLike so it broadcasts to all clients
-commentLike(app, io);
 
-// Setup comment fetch endpoint
-setupCommentRoutes(app);
-
+setup(app, io);
 // Lecturer registration
 app.post("/api/v2/register", async (req, res) => {
     const request = req.body;

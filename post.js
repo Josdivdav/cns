@@ -44,7 +44,7 @@ async function createPost(postMeta, io) {
 }
 
 // ============================================
-// FETCH COMMENTS (with user data)
+// FETCH COMMENTS WITH REPLIES
 // ============================================
 async function fetchComments(postId) {
   const commentRef = db.collection("comments");
@@ -57,11 +57,17 @@ async function fetchComments(postId) {
       query_snapshot.docs.map(async doc => {
         const commentData = doc.data();
         const userData = await getUserData(commentData.portalID);
+        
+        // Fetch replies for this comment
+        const replies = await fetchReplies(doc.id);
+        
         return { 
           id: doc.id, 
           ...commentData, 
           user: userData,
-          timestamp: commentData.timestamp || Date.now()
+          timestamp: commentData.timestamp || Date.now(),
+          replies: replies,
+          replyCount: replies.length
         };
       })
     );
@@ -76,7 +82,38 @@ async function fetchComments(postId) {
 }
 
 // ============================================
-// CREATE COMMENT (Enhanced with timestamp)
+// FETCH REPLIES FOR A COMMENT
+// ============================================
+async function fetchReplies(commentId) {
+  const replyRef = db.collection("replies");
+  const replies_query = replyRef.where("commentId", "==", commentId);
+  const query_snapshot = await replies_query.get();
+
+  if (!query_snapshot.empty) {
+    const replies = await Promise.all(
+      query_snapshot.docs.map(async doc => {
+        const replyData = doc.data();
+        const userData = await getUserData(replyData.portalID);
+        return { 
+          id: doc.id, 
+          ...replyData, 
+          user: userData,
+          timestamp: replyData.timestamp || Date.now()
+        };
+      })
+    );
+
+    // Sort by timestamp (oldest first for replies)
+    replies.sort((a, b) => a.timestamp - b.timestamp);
+
+    return replies;
+  } else {
+    return [];
+  }
+}
+
+// ============================================
+// CREATE COMMENT
 // ============================================
 async function createComment(text, postId, portalId, io) {
   const commentRef = db.collection("comments");
@@ -89,7 +126,8 @@ async function createComment(text, postId, portalId, io) {
     portalID: portalId,
     likes: [],
     likeCount: 0,
-    timestamp: timestamp
+    timestamp: timestamp,
+    replyCount: 0
   };
 
   await commentRef.doc(id).set(commentData);
@@ -100,7 +138,8 @@ async function createComment(text, postId, portalId, io) {
     io.emit("new-comment", {
       id: id,
       ...commentData,
-      user: userData
+      user: userData,
+      replies: []
     });
   }
 
@@ -109,6 +148,52 @@ async function createComment(text, postId, portalId, io) {
   return {
     id: id,
     ...commentData,
+    user: userData,
+    replies: []
+  };
+}
+
+// ============================================
+// CREATE REPLY
+// ============================================
+async function createReply(text, commentId, postId, portalId, io) {
+  const replyRef = db.collection("replies");
+  const id = replyRef.doc().id;
+  const timestamp = Date.now();
+
+  const replyData = {
+    text: text,
+    commentId: commentId,
+    postId: postId,
+    portalID: portalId,
+    likes: [],
+    likeCount: 0,
+    timestamp: timestamp
+  };
+
+  await replyRef.doc(id).set(replyData);
+
+  // Update reply count on parent comment
+  const commentRef = db.collection("comments").doc(commentId);
+  await commentRef.update({
+    replyCount: admin.firestore.FieldValue.increment(1)
+  });
+
+  // Emit real-time update
+  if (io) {
+    const userData = await getUserData(portalId);
+    io.emit("new-reply", {
+      id: id,
+      ...replyData,
+      user: userData
+    });
+  }
+
+  // Return the created reply with user data
+  const userData = await getUserData(portalId);
+  return {
+    id: id,
+    ...replyData,
     user: userData
   };
 }
@@ -180,7 +265,6 @@ async function commentLike(app, io) {
   app.post("/api/comments/like", async (req, res) => {
     const { userId, postId, commentId } = req.body;
     
-    // Validate required fields
     if (!userId || !commentId) {
       return res.status(400).json({ 
         success: false,
@@ -192,7 +276,6 @@ async function commentLike(app, io) {
       const commentRef = db.collection("comments").doc(commentId);
       const commentDoc = await commentRef.get();
       
-      // Check if comment exists
       if (!commentDoc.exists) {
         return res.status(404).json({ 
           success: false,
@@ -202,181 +285,207 @@ async function commentLike(app, io) {
       
       const commentData = commentDoc.data();
       const likes = commentData.likes || [];
+      const isLiked = likes.includes(userId);
       
-      // Check if user already liked this comment
-      const userLikedIndex = likes.indexOf(userId);
-      const liked = userLikedIndex === -1;
-      
-      if (userLikedIndex > -1) {
-        // Unlike: remove user from likes array
-        likes.splice(userLikedIndex, 1);
+      // Toggle like
+      if (isLiked) {
+        await commentRef.update({
+          likes: admin.firestore.FieldValue.arrayRemove(userId),
+          likeCount: admin.firestore.FieldValue.increment(-1)
+        });
       } else {
-        // Like: add user to likes array
-        likes.push(userId);
+        await commentRef.update({
+          likes: admin.firestore.FieldValue.arrayUnion(userId),
+          likeCount: admin.firestore.FieldValue.increment(1)
+        });
       }
       
-      // Update the comment with new likes array
-      await commentRef.update({
-        likes: likes,
-        likeCount: likes.length
-      });
+      // Get updated data
+      const updatedDoc = await commentRef.get();
+      const updatedData = updatedDoc.data();
       
-      // Emit real-time update to all connected clients
+      // Emit real-time update
       if (io) {
         io.emit("comment-liked", {
           commentId: commentId,
           postId: postId,
-          likeCount: likes.length,
-          liked: liked,
+          likes: updatedData.likes || [],
+          likeCount: updatedData.likeCount || 0,
+          liked: !isLiked,
           userId: userId
         });
       }
       
-      return res.status(200).json({
+      res.json({
         success: true,
-        liked: liked,
-        likeCount: likes.length
+        liked: !isLiked,
+        likeCount: updatedData.likeCount || 0
       });
       
     } catch (error) {
       console.error("Error liking comment:", error);
-      return res.status(500).json({ 
+      res.status(500).json({ 
         success: false,
-        error: "Internal server error" 
+        error: "Server error" 
       });
     }
   });
 }
 
 // ============================================
-// SETUP COMMENT ROUTES
+// REPLY LIKE/UNLIKE
 // ============================================
-async function setupCommentRoutes(app, io) {
-  // Fetch comments endpoint
-  app.post("/api/fetch-comments", async (req, res) => {
-    const { postId } = req.body;
+async function replyLike(app, io) {
+  app.post("/api/replies/like", async (req, res) => {
+    const { userId, replyId, commentId, postId } = req.body;
     
-    if (!postId) {
+    if (!userId || !replyId) {
       return res.status(400).json({ 
         success: false,
-        error: "postId is required" 
+        error: "userId and replyId are required" 
       });
     }
     
     try {
-      const comments = await fetchComments(postId);
-      return res.status(200).json(comments);
-    } catch (error) {
-      console.error("Error fetching comments:", error);
-      return res.status(500).json({ 
-        success: false,
-        error: "Internal server error" 
-      });
-    }
-  });
-
-  // Create comment endpoint
-  app.post("/api/comments/create", async (req, res) => {
-    const { text, postId, portalId } = req.body;
-    
-    if (!text || !postId || !portalId) {
-      return res.status(400).json({ 
-        success: false,
-        error: "text, postId, and portalId are required" 
-      });
-    }
-    
-    try {
-      const newComment = await createComment(text, postId, portalId, io);
-      return res.status(200).json({
-        success: true,
-        comment: newComment
-      });
-    } catch (error) {
-      console.error("Error creating comment:", error);
-      return res.status(500).json({ 
-        success: false,
-        error: "Internal server error" 
-      });
-    }
-  });
-
-  // Delete comment endpoint (optional)
-  app.post("/api/comments/delete", async (req, res) => {
-    const { commentId, userId } = req.body;
-    
-    if (!commentId || !userId) {
-      return res.status(400).json({ 
-        success: false,
-        error: "commentId and userId are required" 
-      });
-    }
-    
-    try {
-      const commentRef = db.collection("comments").doc(commentId);
-      const commentDoc = await commentRef.get();
+      const replyRef = db.collection("replies").doc(replyId);
+      const replyDoc = await replyRef.get();
       
-      if (!commentDoc.exists) {
+      if (!replyDoc.exists) {
         return res.status(404).json({ 
           success: false,
-          error: "Comment not found" 
+          error: "Reply not found" 
         });
       }
       
-      const commentData = commentDoc.data();
+      const replyData = replyDoc.data();
+      const likes = replyData.likes || [];
+      const isLiked = likes.includes(userId);
       
-      // Check if user owns the comment
-      const userRef = db.collection("users");
-      const user_query = userRef.where('uid', '==', userId).limit(1);
-      const userSnapshot = await user_query.get();
-      
-      if (userSnapshot.empty) {
-        return res.status(403).json({ 
-          success: false,
-          error: "Unauthorized" 
+      // Toggle like
+      if (isLiked) {
+        await replyRef.update({
+          likes: admin.firestore.FieldValue.arrayRemove(userId),
+          likeCount: admin.firestore.FieldValue.increment(-1)
+        });
+      } else {
+        await replyRef.update({
+          likes: admin.firestore.FieldValue.arrayUnion(userId),
+          likeCount: admin.firestore.FieldValue.increment(1)
         });
       }
       
-      const userData = userSnapshot.docs[0].data();
-      
-      if (commentData.portalID !== userData.portalID) {
-        return res.status(403).json({ 
-          success: false,
-          error: "You can only delete your own comments" 
-        });
-      }
-      
-      await commentRef.delete();
+      // Get updated data
+      const updatedDoc = await replyRef.get();
+      const updatedData = updatedDoc.data();
       
       // Emit real-time update
       if (io) {
-        io.emit("comment-deleted", {
+        io.emit("reply-liked", {
+          replyId: replyId,
           commentId: commentId,
-          postId: commentData.postId
+          postId: postId,
+          likes: updatedData.likes || [],
+          likeCount: updatedData.likeCount || 0,
+          liked: !isLiked,
+          userId: userId
         });
       }
       
-      return res.status(200).json({
+      res.json({
         success: true,
-        message: "Comment deleted successfully"
+        liked: !isLiked,
+        likeCount: updatedData.likeCount || 0
       });
       
     } catch (error) {
-      console.error("Error deleting comment:", error);
-      return res.status(500).json({ 
+      console.error("Error liking reply:", error);
+      res.status(500).json({ 
         success: false,
-        error: "Internal server error" 
+        error: "Server error" 
       });
     }
   });
 }
 
+function setup(app, io) {
+  app.post("/upload-post", async (req, res) => {
+    const data = await createPost(req.body, io);
+    res.send(data);
+  });
+
+  app.post("/fetch-post", async (req, res) => {
+    const data = await getPost();
+    res.send(data);
+  });
+
+  app.post("/post-like", async (req, res) => {
+    const data = await reactionControlLike(req.body.postId, req.body.portalId, io);
+    res.send(data);
+  });
+
+  app.post("/post-comment", async (req, res) => {
+    const data = await createComment(req.body.text, req.body.postId, req.body.portalId, io);
+    res.send(data);
+  });
+
+  // NEW: Reply endpoint
+  app.post("/post-reply", async (req, res) => {
+    try {
+      const { text, commentId, postId, portalId } = req.body;
+      
+      if (!text || !commentId || !postId || !portalId) {
+        return res.status(400).json({
+          success: false,
+          error: "Missing required fields"
+        });
+      }
+      
+      const data = await createReply(text, commentId, postId, portalId, io);
+      res.json({
+        success: true,
+        reply: data
+      });
+    } catch (error) {
+      console.error("Error creating reply:", error);
+      res.status(500).json({
+        success: false,
+        error: "Server error"
+      });
+    }
+  });
+
+  app.post("/fetch-comment", async (req, res) => {
+    try {
+      const { postId } = req.body;
+      
+      if (!postId) {
+        return res.status(400).json({
+          success: false,
+          error: "postId is required"
+        });
+      }
+      
+      const data = await fetchComments(postId);
+      res.json(data);  // Use res.json() instead of res.send()
+    } catch (error) {
+      console.error("Error fetching comments:", error);
+      res.status(500).json({
+        success: false,
+        error: "Server error fetching comments"
+      });
+    }
+  });
+
+  // Comment and reply like endpoints
+  commentLike(app, io);
+  replyLike(app, io);
+}
+
 module.exports = { 
-  fetchComments, 
-  createPost, 
+  setup, 
   getPost, 
-  reactionControlLike, 
   createComment, 
-  commentLike,
-  setupCommentRoutes
+  fetchComments,
+  createReply,
+  fetchReplies
 };

@@ -566,7 +566,30 @@ function setupSocketEvents(io) {
                 roomId: roomId
             });
         });
-
+        
+        socket.on("get-user-info", async (id, uid) => {
+          console.log(id)
+          if (!uid) {
+              io.to(id).emit("get-user-info", {
+                  success: false,
+                  message: "Missing user ID"
+              });
+          }
+  
+          const usersRef = db.collection("users");
+          const userQuery = usersRef.where("uid", "==", uid).limit(1);
+          const userSnapshot = await userQuery.get();
+  
+          if (userSnapshot.empty) {
+              io.to(id).emit("get-user-info", {
+                  success: false,
+                  message: "User not found"
+              });
+          }
+  
+          const userData = userSnapshot.docs[0].data();
+          io.to(id).emit("get-user-info", userData);
+        })
         // Disconnect
         socket.on("disconnect", () => {
             console.log("User disconnected from chat:", socket.id);
