@@ -407,6 +407,49 @@ async function replyLike(app, io) {
   });
 }
 
+// ============================================
+// DELETE POST
+// ============================================
+async function deletePost(postId, portalID) {
+  // Try doc ID directly first, then query by stored postId field
+  let postDocRef = null;
+  let postData   = null;
+
+  const directDoc = await db.collection("posts").doc(postId).get();
+  if (directDoc.exists) {
+    postDocRef = directDoc.ref;
+    postData   = directDoc.data();
+  } else {
+    // Fallback: query by the postId field stored inside the document
+    const snap = await db.collection("posts").where("postId", "==", postId).limit(1).get();
+    if (snap.empty) return { success: false, message: "Post not found" };
+    postDocRef = snap.docs[0].ref;
+    postData   = snap.docs[0].data();
+  }
+
+  // Verify ownership using portalID directly (no extra user lookup needed)
+  if (String(postData.portalID) !== String(portalID)) {
+    return { success: false, message: "Unauthorized" };
+  }
+
+  // Delete the post document
+  await postDocRef.delete();
+
+  // Delete associated comments and their replies
+  const commentsSnap = await db.collection("comments").where("postId", "==", postId).get();
+  if (!commentsSnap.empty) {
+    const batch = db.batch();
+    for (const commentDoc of commentsSnap.docs) {
+      const repliesSnap = await db.collection("replies").where("commentId", "==", commentDoc.id).get();
+      repliesSnap.docs.forEach(r => batch.delete(r.ref));
+      batch.delete(commentDoc.ref);
+    }
+    await batch.commit();
+  }
+
+  return { success: true };
+}
+
 function setup(app, io) {
   app.post("/upload-post", async (req, res) => {
     const data = await createPost(req.body, io);
@@ -479,6 +522,30 @@ function setup(app, io) {
   // Comment and reply like endpoints
   commentLike(app, io);
   replyLike(app, io);
+
+  // DELETE POST
+  app.post("/api/posts/delete-post", async (req, res) => {
+    try {
+      const { postId, portalID } = req.body;
+      if (!postId || !portalID) {
+        return res.status(400).json({ success: false, message: "postId and portalID are required" });
+      }
+      const result = await deletePost(postId, portalID);
+      if (!result.success) {
+        return res.status(result.message === "Unauthorized" ? 403 : 404).json(result);
+      }
+
+      // Broadcast real-time removal to all clients
+      if (io) {
+        io.emit("post-deleted", { postId });
+      }
+
+      res.json({ success: true, message: "Post deleted" });
+    } catch (err) {
+      console.error("Delete post error:", err);
+      res.status(500).json({ success: false, message: "Server error" });
+    }
+  });
 }
 
 module.exports = { 
@@ -487,5 +554,6 @@ module.exports = {
   createComment, 
   fetchComments,
   createReply,
-  fetchReplies
+  fetchReplies,
+  deletePost
 };

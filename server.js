@@ -33,6 +33,7 @@ const { lvn } = require("./svns/lvn.js");
 const { createLecturer, signin } = require("./lecturer/auth.js");
 const { setupMessageRoutes, setupSocketEvents } = require("./messages.js");
 
+const { setupUploadProfileImage } = require("./uploadProfileImage.js");
 const multer = require("multer");
 const path = require("path");
 
@@ -49,6 +50,7 @@ const upload = multer({ storage: storage });
 const { key, user } = mailings;
 app.use(cors());
 app.use("/uploads", express.static("uploads"));
+app.use("/profile-images/", express.static("public/profile-images"));
 const io = socketServer(http, { cors: { origin: "*" } });
 const authenticateSocket = (socket, next) => {
     const token = socket.handshake.auth.token;
@@ -184,6 +186,9 @@ setupSocketEvents(io);
 setupUserProfileRoutes(app);
 
 setup(app, io);
+
+setupUploadProfileImage(app);
+
 // Lecturer registration
 app.post("/api/v2/register", async (req, res) => {
     const request = req.body;
