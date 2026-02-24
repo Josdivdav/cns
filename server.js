@@ -25,7 +25,8 @@ const {
     createComment,
     fetchComments,
     createReply,
-    fetchReplies
+    fetchReplies,
+    createPost,
 } = require("./post.js");
 const { sendRequest, getAllUsersNotFriends, getRequest } = require("./contact.js");
 const { svn } = require("./svns/consy-svn.js");
