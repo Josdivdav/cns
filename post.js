@@ -555,5 +555,6 @@ module.exports = {
   fetchComments,
   createReply,
   fetchReplies,
-  deletePost
+  deletePost,
+  createPost
 };
