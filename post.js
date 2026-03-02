@@ -556,5 +556,6 @@ module.exports = {
   createReply,
   fetchReplies,
   deletePost,
-  createPost
+  createPost,
+  reactionControlLike
 };

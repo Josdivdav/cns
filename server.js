@@ -27,6 +27,7 @@ const {
     createReply,
     fetchReplies,
     createPost,
+    reactionControlLike
 } = require("./post.js");
 const { sendRequest, getAllUsersNotFriends, getRequest } = require("./contact.js");
 const { svn } = require("./svns/consy-svn.js");
