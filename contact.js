@@ -1,5 +1,10 @@
 const { db, admin } = require("./admin.firebase.js");
 const { getUserDataC } = require("./user.js");
+const {
+    notifyFriendRequest,
+    notifyRequestAccepted
+} = require("./notifications.js");
+
 
 async function getRequest(app) {
     app.post("/api/contact/get-requests", async (req, res) => {
@@ -88,6 +93,7 @@ async function sendRequest(app) {
                     friendRequest: [...receiverRequests, sid]
                 })
             ]);
+            await notifyFriendRequest(sid, uid, null);
 
             res.send({ success: true, message: "Request sent" });
         } catch (err) {
@@ -187,6 +193,8 @@ async function acceptRequest(app, io) {
                     friendsList: admin.firestore.FieldValue.arrayUnion(userId)
                 })
             ]);
+            
+            await notifyRequestAccepted(userId, requestId, io);
 
             // Emit real-time update to both users if io is available
             if (io) {

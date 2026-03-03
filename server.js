@@ -35,6 +35,8 @@ const { lvn } = require("./svns/lvn.js");
 const { createLecturer, signin } = require("./lecturer/auth.js");
 const { setupMessageRoutes, setupSocketEvents } = require("./messages.js");
 
+const { setupNotificationRoutes } = require("./notifications.js");
+
 const { setupUploadProfileImage } = require("./uploadProfileImage.js");
 const multer = require("multer");
 const path = require("path");
@@ -191,6 +193,8 @@ setup(app, io);
 
 setupUploadProfileImage(app);
 
+
+setupNotificationRoutes(app, io);
 // Lecturer registration
 app.post("/api/v2/register", async (req, res) => {
     const request = req.body;

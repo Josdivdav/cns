@@ -1,5 +1,11 @@
 const { db, admin } = require("./admin.firebase.js");
 const { getUserData } = require("./user.js");
+const {
+    notifyPostLike,
+    notifyPostComment,
+    notifyCommentLike,
+    notifyCommentReply
+} = require("./notifications.js");
 
 async function createPost(postMeta, io) {
   const { text, mediaFiles, pid, reactions, timestamp } = postMeta;
@@ -132,6 +138,7 @@ async function createComment(text, postId, portalId, io) {
 
   await commentRef.doc(id).set(commentData);
 
+  await notifyPostComment(postId, portalId, id, io);
   // Emit real-time update to all connected clients
   if (io) {
     const userData = await getUserData(portalId);
@@ -172,7 +179,7 @@ async function createReply(text, commentId, postId, portalId, io) {
   };
 
   await replyRef.doc(id).set(replyData);
-
+  await notifyCommentReply(commentId, portalId, id, io);
   // Update reply count on parent comment
   const commentRef = db.collection("comments").doc(commentId);
   await commentRef.update({
@@ -243,6 +250,8 @@ async function reactionControlLike(pid, portalId, io) {
     
     const postData = (await postRef.get()).data();
     
+    await notifyPostLike(pid, portalId, io);
+    
     // Emit real-time update to all connected clients
     if (io) {
       io.emit("post-liked", {
@@ -293,6 +302,7 @@ async function commentLike(app, io) {
           likes: admin.firestore.FieldValue.arrayRemove(userId),
           likeCount: admin.firestore.FieldValue.increment(-1)
         });
+        await notifyCommentLike(commentId, userId, io);
       } else {
         await commentRef.update({
           likes: admin.firestore.FieldValue.arrayUnion(userId),
