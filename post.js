@@ -28,7 +28,6 @@ async function createPost(postMeta, io) {
       postId: id
     });
     
-    // Emit real-time update to all connected clients
     if (io) {
       const userData = await getUserData(pid);
       io.emit("new-post", {
@@ -49,22 +48,18 @@ async function createPost(postMeta, io) {
   }
 }
 
-// ============================================
-// FETCH COMMENTS WITH REPLIES
-// ============================================
+
 async function fetchComments(postId) {
   const commentRef = db.collection("comments");
   const comments_query = commentRef.where("postId", "==", postId);
   const query_snapshot = await comments_query.get();
 
   if (!query_snapshot.empty) {
-    // Use map + Promise.all to handle async properly
     const comments = await Promise.all(
       query_snapshot.docs.map(async doc => {
         const commentData = doc.data();
         const userData = await getUserData(commentData.portalID);
         
-        // Fetch replies for this comment
         const replies = await fetchReplies(doc.id);
         
         return { 
@@ -77,19 +72,14 @@ async function fetchComments(postId) {
         };
       })
     );
-
-    // Sort by timestamp (newest first)
     comments.sort((a, b) => b.timestamp - a.timestamp);
 
     return comments;
   } else {
-    return []; // no comments found
+    return [];
   }
 }
 
-// ============================================
-// FETCH REPLIES FOR A COMMENT
-// ============================================
 async function fetchReplies(commentId) {
   const replyRef = db.collection("replies");
   const replies_query = replyRef.where("commentId", "==", commentId);
@@ -108,8 +98,6 @@ async function fetchReplies(commentId) {
         };
       })
     );
-
-    // Sort by timestamp (oldest first for replies)
     replies.sort((a, b) => a.timestamp - b.timestamp);
 
     return replies;
@@ -118,9 +106,6 @@ async function fetchReplies(commentId) {
   }
 }
 
-// ============================================
-// CREATE COMMENT
-// ============================================
 async function createComment(text, postId, portalId, io) {
   const commentRef = db.collection("comments");
   const id = commentRef.doc().id;
@@ -139,7 +124,6 @@ async function createComment(text, postId, portalId, io) {
   await commentRef.doc(id).set(commentData);
 
   await notifyPostComment(postId, portalId, id, io);
-  // Emit real-time update to all connected clients
   if (io) {
     const userData = await getUserData(portalId);
     io.emit("new-comment", {
@@ -149,8 +133,6 @@ async function createComment(text, postId, portalId, io) {
       replies: []
     });
   }
-
-  // Return the created comment with user data
   const userData = await getUserData(portalId);
   return {
     id: id,
@@ -160,9 +142,6 @@ async function createComment(text, postId, portalId, io) {
   };
 }
 
-// ============================================
-// CREATE REPLY
-// ============================================
 async function createReply(text, commentId, postId, portalId, io) {
   const replyRef = db.collection("replies");
   const id = replyRef.doc().id;
@@ -180,13 +159,11 @@ async function createReply(text, commentId, postId, portalId, io) {
 
   await replyRef.doc(id).set(replyData);
   await notifyCommentReply(commentId, portalId, id, io);
-  // Update reply count on parent comment
   const commentRef = db.collection("comments").doc(commentId);
   await commentRef.update({
     replyCount: admin.firestore.FieldValue.increment(1)
   });
-
-  // Emit real-time update
+  
   if (io) {
     const userData = await getUserData(portalId);
     io.emit("new-reply", {
@@ -195,8 +172,7 @@ async function createReply(text, commentId, postId, portalId, io) {
       user: userData
     });
   }
-
-  // Return the created reply with user data
+  
   const userData = await getUserData(portalId);
   return {
     id: id,
@@ -252,7 +228,6 @@ async function reactionControlLike(pid, portalId, io) {
     
     await notifyPostLike(pid, portalId, io);
     
-    // Emit real-time update to all connected clients
     if (io) {
       io.emit("post-liked", {
         postId: pid,
@@ -267,13 +242,9 @@ async function reactionControlLike(pid, portalId, io) {
   }
 }
 
-// ============================================
-// COMMENT LIKE/UNLIKE
-// ============================================
 async function commentLike(app, io) {
   app.post("/api/comments/like", async (req, res) => {
     const { userId, postId, commentId } = req.body;
-    
     if (!userId || !commentId) {
       return res.status(400).json({ 
         success: false,
@@ -296,7 +267,6 @@ async function commentLike(app, io) {
       const likes = commentData.likes || [];
       const isLiked = likes.includes(userId);
       
-      // Toggle like
       if (isLiked) {
         await commentRef.update({
           likes: admin.firestore.FieldValue.arrayRemove(userId),
@@ -309,12 +279,10 @@ async function commentLike(app, io) {
           likeCount: admin.firestore.FieldValue.increment(1)
         });
       }
-      
-      // Get updated data
+    
       const updatedDoc = await commentRef.get();
       const updatedData = updatedDoc.data();
       
-      // Emit real-time update
       if (io) {
         io.emit("comment-liked", {
           commentId: commentId,
@@ -342,9 +310,6 @@ async function commentLike(app, io) {
   });
 }
 
-// ============================================
-// REPLY LIKE/UNLIKE
-// ============================================
 async function replyLike(app, io) {
   app.post("/api/replies/like", async (req, res) => {
     const { userId, replyId, commentId, postId } = req.body;
@@ -371,7 +336,6 @@ async function replyLike(app, io) {
       const likes = replyData.likes || [];
       const isLiked = likes.includes(userId);
       
-      // Toggle like
       if (isLiked) {
         await replyRef.update({
           likes: admin.firestore.FieldValue.arrayRemove(userId),
@@ -384,11 +348,9 @@ async function replyLike(app, io) {
         });
       }
       
-      // Get updated data
       const updatedDoc = await replyRef.get();
       const updatedData = updatedDoc.data();
       
-      // Emit real-time update
       if (io) {
         io.emit("reply-liked", {
           replyId: replyId,
@@ -417,11 +379,7 @@ async function replyLike(app, io) {
   });
 }
 
-// ============================================
-// DELETE POST
-// ============================================
 async function deletePost(postId, portalID) {
-  // Try doc ID directly first, then query by stored postId field
   let postDocRef = null;
   let postData   = null;
 
@@ -430,22 +388,15 @@ async function deletePost(postId, portalID) {
     postDocRef = directDoc.ref;
     postData   = directDoc.data();
   } else {
-    // Fallback: query by the postId field stored inside the document
     const snap = await db.collection("posts").where("postId", "==", postId).limit(1).get();
     if (snap.empty) return { success: false, message: "Post not found" };
     postDocRef = snap.docs[0].ref;
     postData   = snap.docs[0].data();
   }
-
-  // Verify ownership using portalID directly (no extra user lookup needed)
   if (String(postData.portalID) !== String(portalID)) {
     return { success: false, message: "Unauthorized" };
   }
-
-  // Delete the post document
   await postDocRef.delete();
-
-  // Delete associated comments and their replies
   const commentsSnap = await db.collection("comments").where("postId", "==", postId).get();
   if (!commentsSnap.empty) {
     const batch = db.batch();
@@ -481,7 +432,6 @@ function setup(app, io) {
     res.send(data);
   });
 
-  // NEW: Reply endpoint
   app.post("/post-reply", async (req, res) => {
     try {
       const { text, commentId, postId, portalId } = req.body;
@@ -519,7 +469,7 @@ function setup(app, io) {
       }
       
       const data = await fetchComments(postId);
-      res.json(data);  // Use res.json() instead of res.send()
+      res.json(data);
     } catch (error) {
       console.error("Error fetching comments:", error);
       res.status(500).json({
@@ -528,12 +478,8 @@ function setup(app, io) {
       });
     }
   });
-
-  // Comment and reply like endpoints
   commentLike(app, io);
   replyLike(app, io);
-
-  // DELETE POST
   app.post("/api/posts/delete-post", async (req, res) => {
     try {
       const { postId, portalID } = req.body;
@@ -544,8 +490,6 @@ function setup(app, io) {
       if (!result.success) {
         return res.status(result.message === "Unauthorized" ? 403 : 404).json(result);
       }
-
-      // Broadcast real-time removal to all clients
       if (io) {
         io.emit("post-deleted", { postId });
       }

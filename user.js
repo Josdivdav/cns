@@ -34,7 +34,7 @@ async function getUserData(portalId) {
     const userData = res.docs.map(doc => ({ id: doc.id, ...doc.data() }))[0];
     return userData;
   }
-  return null; // Optional: handle case where no user is found
+  return null;
 }
 async function getUserDataC(contactId) {
   const usersRef = db.collection("users");
@@ -44,6 +44,6 @@ async function getUserDataC(contactId) {
     const userData = res.docs.map(doc => ({ id: doc.id, ...doc.data() }))[0];
     return userData;
   }
-  return null; // Optional: handle case where no user is found
+  return null;
 }
 module.exports = { getUserData, getUsers, getUserData, getUserDataC };

@@ -69,12 +69,8 @@ const authenticateSocket = (socket, next) => {
 
 io.use(authenticateSocket);
 
-// ============================================
-// SOCKET.IO REAL-TIME EVENTS
-// ============================================
+
 io.on("connection", socket => {
-    console.log("Client connected id: " + socket.id);
-    
     socket.on("authenticate", async (r) => {
         const token = socket.handshake.auth.token;
         const rs = verifyToken(token, secret_key);
@@ -126,39 +122,26 @@ io.on("connection", socket => {
         io.to(sid).emit("fetchUserData", await getUserData(uid));
     });
     
-    // ============================================
-    // REAL-TIME POST CREATION (Updated)
-    // ============================================
     socket.on("create-post", async postData => {
         const { sid } = postData;
         try {
-            // Pass 'io' to createPost so it broadcasts to all clients
             const response = await createPost(postData, io);
             io.to(sid).emit("create-post", response);
-            // createPost will automatically emit "new-post" to all clients
         } catch (err) {
             console.error("Error creating post:", err);
             io.to(sid).emit("create-post", "Error occurred");
         }
     });
     
-    // ============================================
-    // FETCH POSTS
-    // ============================================
     socket.on("fetch-post", async (sid, uid) => {
         io.to(sid).emit("fetch-post", await getPost(uid), sid);
     });
     
-    // ============================================
-    // REAL-TIME COMMENT CREATION (Updated)
-    // ============================================
     socket.on("create-comment", async (sid, text, postId, portalId) => {
         try {
-            // Pass 'io' to createComment so it broadcasts to all clients
             const res = await createComment(text, postId, portalId, io);
             const c = await fetchComments(res);
             io.to(sid).emit("create-comment", c);
-            // createComment will automatically emit "new-comment" to all clients
         } catch (err) {
             console.error("Error creating comment:", err);
         }
@@ -169,17 +152,11 @@ io.on("connection", socket => {
     });
 });
 
-// ============================================
-// HTTP API ENDPOINTS
-// ============================================
-
-// Fetch user data
 app.post("/fetch-user", async (req, res) => {
     const { userId } = req.body;
     userId ? res.json(await getUserData(userId)) : res.json(await getUsers());
 });
 
-// Contact/Friend request routes
 getAllUsersNotFriends(app);
 sendRequest(app);
 getRequest(app);
@@ -195,7 +172,7 @@ setupUploadProfileImage(app);
 
 
 setupNotificationRoutes(app, io);
-// Lecturer registration
+
 app.post("/api/v2/register", async (req, res) => {
     const request = req.body;
     if (lvn.includes(request.lvn)) {
@@ -209,7 +186,6 @@ app.post("/api/v2/register", async (req, res) => {
     }
 });
 
-// Lecturer login
 app.post("/api/v2/login", async (req, res) => {
     const r = req.body;
 
@@ -228,23 +204,17 @@ app.post("/api/v2/login", async (req, res) => {
     }
 });
 
-// ============================================
-// REAL-TIME POST LIKE (Updated)
-// ============================================
 app.post("/api/post-react-like", async (req, res) => {
     const { postId, portalId } = req.body;
     try {
-        // Pass 'io' to reactionControlLike so it broadcasts to all clients
         const response = await reactionControlLike(postId, portalId, io);
         res.json({ likes: response.reactions.likes });
-        // reactionControlLike will automatically emit "post-liked" to all clients
     } catch (err) {
         console.error("Error liking post:", err);
         res.status(500).json({ error: "Internal server error" });
     }
 });
 
-// Email verification code
 app.post("/api/send-code/v1", async (req, res) => {
     const { email, code } = req.body;
     const transporter = nodemailer.createTransport({
@@ -293,12 +263,10 @@ app.post("/api/send-code/v1", async (req, res) => {
     });
 });
 
-// Home route
 app.get("/", (req, res) => {
     res.send("<h1>Welcome to consy backend!</h1>");
 });
 
-// File upload
 app.post("/api/upload", upload.single("file"), (req, res) => {
     if (!req.file) {
         return res.status(400).send({ message: "No file uploaded" });
@@ -306,7 +274,6 @@ app.post("/api/upload", upload.single("file"), (req, res) => {
     res.json({ filePath: req.file.path, type: req.file.mimetype });
 });
 
-// Register a user
 app.post("/api/register", async (req, res) => {
     const userData = req.body;
     const { portalID } = userData;
@@ -323,7 +290,6 @@ app.post("/api/register", async (req, res) => {
     }
 });
 
-// Sign in a user
 app.post("/api/login", async (req, res) => {
     const { email, password } = req.body;
     if (!email || !password) {
@@ -337,10 +303,6 @@ app.post("/api/login", async (req, res) => {
     });
 });
 
-// ============================================
-// START SERVER
-// ============================================
 http.listen(5000, "0.0.0.0", () => {
     console.log("Server listening on port 5000");
-    console.log("Real-time updates enabled via Socket.IO ✓");
 });

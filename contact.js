@@ -103,9 +103,6 @@ async function sendRequest(app) {
     });
 }
 
-// ============================================
-// ACCEPT FRIEND REQUEST
-// ============================================
 async function acceptRequest(app, io) {
     app.post("/api/contact/accept-request", async (req, res) => {
         try {
@@ -178,9 +175,9 @@ async function acceptRequest(app, io) {
             }
 
             // Update both users:
-            // 1. Remove from friendRequest array (receiver)
-            // 2. Remove from friendRequestSent array (sender)
-            // 3. Add to friendsList array (both)
+            // Remove from friendRequest array (receiver)
+            // Remove from friendRequestSent array (sender)
+            // Add to friendsList array (both)
             await Promise.all([
                 // Update receiver (user accepting)
                 userRef.update({
@@ -196,7 +193,7 @@ async function acceptRequest(app, io) {
             
             await notifyRequestAccepted(userId, requestId, io);
 
-            // Emit real-time update to both users if io is available
+            // Emit real-time update to both users
             if (io) {
                 io.emit("friend-request-accepted", {
                     userId: userId,
@@ -284,8 +281,8 @@ async function rejectRequest(app, io) {
             }
 
             // Update both users:
-            // 1. Remove from friendRequest array (receiver)
-            // 2. Remove from friendRequestSent array (sender)
+            // Remove from friendRequest array (receiver)
+            // Remove from friendRequestSent array (sender)
             await Promise.all([
                 userRef.update({
                     friendRequest: admin.firestore.FieldValue.arrayRemove(requestId)
@@ -295,7 +292,7 @@ async function rejectRequest(app, io) {
                 })
             ]);
 
-            // Emit real-time update if io is available
+            // Emit real-time update
             if (io) {
                 io.emit("friend-request-rejected", {
                     userId: userId,
@@ -318,9 +315,7 @@ async function rejectRequest(app, io) {
     });
 }
 
-// ============================================
-// GET FRIENDS LIST
-// ============================================
+
 async function getFriendsList(app) {
     app.post("/api/contact/get-friends", async (req, res) => {
         try {
