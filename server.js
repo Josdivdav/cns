@@ -69,8 +69,65 @@ const authenticateSocket = (socket, next) => {
 
 io.use(authenticateSocket);
 
+// ── uid → socketId map so we can target specific users ──────────────────────
+const onlineUsers = {};
 
 io.on("connection", socket => {
+
+    // Every page registers the logged-in user on socket connect
+    socket.on("register-user", (uid) => {
+        onlineUsers[uid] = socket.id;
+        console.log("register-user:", uid, "->", socket.id);
+    });
+
+    // ── Call signalling ──────────────────────────────────────────────────────
+
+    // Caller emits this after their PeerJS peer opens
+    // data = { targetUid, callerUid, callerName, callType, roomId, peerId }
+    socket.on("incoming-call", (data) => {
+        const targetSocket = onlineUsers[data.targetUid];
+        if (targetSocket) {
+            io.to(targetSocket).emit("incoming-call", data);
+        }
+    });
+
+    // Callee accepted — tell the caller
+    // data = { callerUid, calleeUid, roomId }
+    socket.on("call-accepted", (data) => {
+        const callerSocket = onlineUsers[data.callerUid];
+        if (callerSocket) {
+            io.to(callerSocket).emit("call-accepted", data);
+        }
+    });
+
+    // Callee rejected — tell the caller
+    // data = { callerUid }
+    socket.on("call-rejected", (data) => {
+        const callerSocket = onlineUsers[data.callerUid];
+        if (callerSocket) {
+            io.to(callerSocket).emit("call-rejected");
+        }
+    });
+
+    // PeerJS room events — same pattern as template
+    socket.on("join-room", (roomId, peerId) => {
+        socket.join(roomId);
+        socket.to(roomId).emit("user-connected", peerId);
+        console.log("join-room:", roomId, "peerId:", peerId);
+    });
+
+    socket.on("call-ended", (roomId) => {
+        socket.to(roomId).emit("call-ended");
+        console.log("call-ended room:", roomId);
+    });
+
+    socket.on("leave-room", (roomId) => {
+        socket.leave(roomId);
+        socket.to(roomId).emit("user-disconnected", socket.id);
+    });
+
+    // ── Existing events ──────────────────────────────────────────────────────
+
     socket.on("authenticate", async (r) => {
         const token = socket.handshake.auth.token;
         const rs = verifyToken(token, secret_key);
@@ -148,6 +205,13 @@ io.on("connection", socket => {
     });
     
     socket.on("disconnect", () => {
+        // Remove user from online map
+        for (var uid in onlineUsers) {
+            if (onlineUsers[uid] === socket.id) {
+                delete onlineUsers[uid];
+                break;
+            }
+        }
         console.log("Client disconnected:", socket.id);
     });
 });
